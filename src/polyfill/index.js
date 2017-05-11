@@ -1,1 +1,2 @@
 require('./bind');
+require('./string');

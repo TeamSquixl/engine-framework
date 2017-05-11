@@ -1,18 +1,17 @@
-var Loaders = require('./loaders');
 var CallbacksInvoker = require('./callbacks-invoker');
 
 function getBuiltinRawTypes () {
     return {
         image: {
-            loader: Loaders.ImageLoader,
+            loader: Fire._ImageLoader,
             defaultExtname: '.host'
         },
         json: {
-            loader: Loaders.JsonLoader,
+            loader: Fire._JsonLoader,
             defaultExtname: '.json'
         },
         text: {
-            loader: Loaders.TextLoader,
+            loader: Fire._TextLoader,
             defaultExtname: '.txt'
         }
     };
@@ -126,11 +125,11 @@ var LoadManager = {
                 this.loadByLoader(typeInfo.loader, rawUrl, callback);
             }
             else {
-                callback('Undefined extname for the raw ' + rawType + ' file of ' + url, null);
+                callback(new Error('Undefined extname for the raw ' + rawType + ' file of ' + url), null);
             }
         }
         else {
-            callback('Unknown raw type "' + rawType + '" of ' + url, null);
+            callback(new Error('Unknown raw type "' + rawType + '" of ' + url), null);
         }
     },
 

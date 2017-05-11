@@ -7,12 +7,13 @@ var NYI = require('./utils').NYI;
 
 /**
  * You should override:
- * - childNodes
+ * - childrenN
  * - createNode
  * - position
  * - scale
  *
  * You may want to override:
+ * - onBeforeSerialize (so that the scene's properties can be serialized in wrapper)
  * - preloadAssets (so that scene can load synchronously)
  *
  * @class SceneWrapper
@@ -28,7 +29,7 @@ var SceneWrapper = Fire.Class({
     },
 
     properties: {
-        parentNode: {
+        parentN: {
             get: function () {
                 return null;
             },
@@ -37,6 +38,15 @@ var SceneWrapper = Fire.Class({
                     Fire.error("Disallow to set scene's parent.");
                 }
             }
+        },
+        scenePosition: {
+            get: function () {
+                return new Fire.Vec2(0, 0);
+            },
+            set: function () {
+                Fire.error("Disallow to set scene's scenePosition.");
+            },
+            visible: false
         }
         /**
          * The local position in its parent's coordinate system.
@@ -53,13 +63,14 @@ var SceneWrapper = Fire.Class({
     },
 
     /**
-     * Preload assets before scene loading.
+     * Preload resources before scene loading.
      * @method preloadAssets
-     * @param {Fire.Asset[]} assets
+     * @param {Assets[]} assetObjects
+     * @param {string[]} rawAssetUrls
      * @param {function} callback
      * @param {string} callback.error
      */
-    preloadAssets: function (assets, callback) {
+    preloadAssets: function (assetObjects, rawAssetUrls, callback) {
         callback();
     },
 

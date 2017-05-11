@@ -1,6 +1,6 @@
 {
   "name": "engine-framework",
-  "version": "0.0.1",
+  "version": "0.1.2",
   "description": "A simple framework for connecting Fireball Editor and other game engines",
   "homepage": "http://fireball-x.com",
   "repository": {
@@ -12,6 +12,9 @@
   "bugs": "https://github.com/fireball-x/editor-framework/issues",
   "scripts": {
     "test": "gulp test"
+  },
+  "dependencies": {
+    "node-uuid": "1.4.2"
   },
   "devDependencies": {
     "browserify": "10.2.3",

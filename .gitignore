@@ -57,6 +57,6 @@ publish/
 *.log
 
 # test
-test/unit/**/*.html
+qunit/unit/**/*.html
 demo/.settings/
 .settings/

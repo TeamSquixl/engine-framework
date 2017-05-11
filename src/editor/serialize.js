@@ -1,19 +1,12 @@
 var Def = require('../core/definition');
 var PersistentMask = Def.PersistentMask;
 var DontSave = Def.DontSave;
+var EditorOnly = Def.EditorOnly;
 var _isDomNode = require('../core/utils').isDomNode;
 var nicifySerialized = require('./serialize-nicify');
+var FObject = Fire.FObject;
 
-function _getType (obj) {
-    var p = obj.constructor.prototype;
-    if (p.hasOwnProperty('__cid__')) {
-        return obj.__cid__;
-    }
-    if (p.hasOwnProperty('__classname__')) {
-        return obj.__classname__;
-    }
-    return '';
-}
+var _getType = Fire.JS._getClassId;
 
 var _Serializer = (function () {
 
@@ -52,7 +45,7 @@ var _Serializer = (function () {
             var data = self._parsingData[parsingIndex];
             if (Array.isArray(obj) === false) {
                 //data.__id__ = id;   // also save id in source data, just for debugging
-                var type = _getType(obj);
+                var type = _getType(obj, false);
                 if (type) {
                     data.__type__ = type;
                 }
@@ -61,6 +54,92 @@ var _Serializer = (function () {
             return data;
         }
     };
+
+    function enumerateByFireClass (self, obj, data, fireClass) {
+        function serializeUrlField (url) {
+            if (!url) {
+                return undefined;
+            }
+            var uuid;
+            if (typeof url === 'string') {
+                uuid = Editor.urlToUuid(url);
+            }
+            else {
+                uuid = url._uuid;   // 这里是为了兼容 deserialize 的 createAssetRefs 后的数据
+                if (!uuid) {
+                    Fire.error('The url must be "string" type');
+                    return undefined;
+                }
+            }
+            if (uuid) {
+                return { __uuid__: uuid };
+            }
+            return undefined;
+        }
+
+        var props = fireClass.__props__;
+
+        for (var p = 0; p < props.length; p++) {
+            var propName = props[p];
+            var attrs = Fire.attr(fireClass, propName);
+
+            // assume all prop in __props__ must have attr
+            if (attrs.serializable === false) {
+                continue;
+            }
+            if (self._exporting && attrs.editorOnly) {
+                // skip editor only when exporting
+                continue;
+            }
+            if (attrs.saveUrlAsAsset) {
+                var url = obj[propName];
+                if (Array.isArray(url)) {
+                    data[propName] = url.map(serializeUrlField);
+                }
+                else {
+                    data[propName] = serializeUrlField(url);
+                }
+                continue;
+            }
+            if (attrs.isRuntimeNode) {
+                var node = obj[propName];
+                if (Array.isArray(node)) {
+                    data[propName] = node.map(function (node) {
+                        return _serializeField(self, Fire(node));
+                    });
+                }
+                else {
+                    data[propName] = _serializeField(self, Fire(node));
+                }
+                continue;
+            }
+
+            // undefined value (if dont save) will be stripped from JSON
+            data[propName] = _serializeField(self, obj[propName]);
+        }
+    }
+
+    // 将 MissingBehavior 的数据重新序列化到 target 里面
+    function saveMissingBehData (self, data, originNodeData) {
+        //Fire.JS.addon(data, obj._mixin.originNodeData);
+        for (var key in originNodeData) {
+            var value = originNodeData[key];
+            if (Array.isArray(value)) {
+                data[key] = value.map(function (x) {
+                    if (x && typeof x === 'object' && Fire.getWrapperType(x)) {
+                        x = Fire(x);
+                    }
+                    return _serializeField(self, x);
+                });
+            }
+            else {
+                if (value && typeof value === 'object' && Fire.getWrapperType(value)) {
+                    value = Fire(value);
+                }
+                data[key] = _serializeField(self, value);
+            }
+        }
+    }
 
     ///**
     // * @param {object} obj - The object to serialize
@@ -78,33 +157,15 @@ var _Serializer = (function () {
             }
         }
         else {
-            var attrs, propName;
             var klass = obj.constructor;
             var mixinClasses = obj._mixinClasses;
             if (mixinClasses) {
-                for (var i = 0; i < mixinClasses.length; i++) {
-                    var mixinClass = mixinClasses[i];
-                    var props = mixinClass.__props__;
-                    if (props) {
-                        for (var p2 = 0; p2 < props.length; p2++) {
-                            propName = props[p2];
-                            attrs = Fire.attr(mixinClass, propName);
-                            // assume all prop in __props__ must have attr
-
-                            // skip nonSerialized
-                            if (attrs.serializable === false) {
-                                continue;
-                            }
-
-                            // skip editor only when exporting
-                            if (self._exporting && attrs.editorOnly) {
-                                continue;
-                            }
-
-                            // undefined value (if dont save) will be stripped from JSON
-                            data[propName] = _serializeField(self, obj[propName]);
-                        }
-                    }
+                for (var m = 0; m < mixinClasses.length; m++) {
+                    var mixinClass = mixinClasses[m];
+                    enumerateByFireClass(self, obj, data, mixinClass);
+                }
+                if (obj._mixin.originNodeData) {
+                    saveMissingBehData(self, data, obj._mixin.originNodeData);
                 }
             }
             else if (! Fire._isFireClass(klass)) {
@@ -124,26 +185,9 @@ var _Serializer = (function () {
                 //    obj.onBeforeSerialize();
                 //}
                 var props = klass.__props__;
-                if (props) {
+                if (props.length > 0) {
                     if (props[props.length - 1] !== '_$erialized') {
-                        for (var p = 0; p < props.length; p++) {
-                            propName = props[p];
-                            attrs = Fire.attr(klass, propName);
-                            // assume all prop in __props__ must have attr
-
-                            // skip nonSerialized
-                            if (attrs.serializable === false) {
-                                continue;
-                            }
-
-                            // skip editor only when exporting
-                            if (self._exporting && attrs.editorOnly) {
-                                continue;
-                            }
-
-                            // undefined value (if dont save) will be stripped from JSON
-                            data[propName] = _serializeField(self, obj[propName]);
-                        }
+                        enumerateByFireClass(self, obj, data, klass);
                     }
                     else {
                         // If is missing script proxy, serialized as original data
@@ -192,7 +236,7 @@ var _Serializer = (function () {
         }
         else {  // 'object'
             data = {};
-            var type = _getType(obj);
+            var type = _getType(obj, false);
             if (type) {
                 data.__type__ = type;
             }
@@ -238,17 +282,20 @@ var _Serializer = (function () {
             return { __id__: id }; // no need to parse again
         }
 
-        if (obj instanceof FObject) {
+        var isFObj = obj instanceof FObject;
+        if (isFObj) {
             // FObject
-            if ( !obj.isValid ) {
+            if (!obj.isValid) {
                 return null;
             }
             var uuid = obj._uuid;
             if (uuid) {
                 // Asset
-                return { __uuid__: uuid };
+                return {__uuid__: uuid};
             }
-
+        }
+        var ctor = obj.constructor;
+        if (isFObj || Fire._isFireClass(ctor)) {
             // assign id for FObject
             id = self.serializedList.length;
             obj.__id__ = id;        // we add this prop dynamically to simply lookup whether an obj has been serialized.
@@ -259,28 +306,32 @@ var _Serializer = (function () {
             var data = {};
             self.serializedList.push(data);
 
-            var type = _getType(obj);
+            var type = _getType(obj, false);
             if (type) {
                 data.__type__ = type;
             }
             if (! obj._serialize) {
                 _enumerateObject(self, obj, data);
-                data._objFlags &= PersistentMask;
+                if (isFObj) {
+                    data._objFlags &= PersistentMask;
+                }
             }
             else {
-                //obj._objFlags &= PersistentMask;
+                //if (isFObj) {
+                //    obj._objFlags &= PersistentMask;
+                //}
                 data.content = obj._serialize(self._exporting);
             }
 
             return { __id__: id };
         }
-        else if (_isDomNode && _isDomNode(obj)) {
-            // raw obj
+        else if (ctor !== Object && !Array.isArray(obj) && !(_getType(obj, false) || obj._mixinClasses)) {
+            // unknown obj, not serializable
             //Fire.warn("" + obj + " won't be serialized");
             return null;
         }
         else {
-            // check circular reference if primitive object
+            // primitive object, check circular reference
             // 对于原生javascript类型，只做循环引用的保护，
             // 并不保证同个对象的多处引用反序列化后仍然指向同一个对象。
             // 如果有此需求，应该继承自FObject
@@ -303,7 +354,7 @@ var _Serializer = (function () {
     // * @param {object} obj - The object to serialize
     // */
     var _serializeMainObj = function (self, obj) {
-        if (obj instanceof FObject) {
+        if (obj instanceof FObject || Fire._isFireClass(obj.constructor)) {
             var uuid = obj._uuid;
             if (typeof uuid !== 'undefined') {
                 // force Asset serializable, or _serializeObj will just return { __uuid__: ... }
@@ -330,7 +381,7 @@ var _Serializer = (function () {
             }
             else {
                 data = {};
-                var type = _getType(obj);
+                var type = _getType(obj, false);
                 if (type) {
                     data.__type__ = type;
                 }
@@ -353,7 +404,7 @@ var _Serializer = (function () {
  * @module Editor
  */
 /**
- * Serialize Fire.Asset to a json string
+ * Serialize any object to a json string
  * @method serialize
  * @param {Asset} obj - The object to serialize
  * @param {object} [options=null]
@@ -373,7 +424,13 @@ Editor.serialize = function (obj, options) {
         nicifySerialized(serializedList);
     }
 
-    var serializedData = serializedList.length === 1 ? serializedList[0] : serializedList;
+    var serializedData;
+    if (serializedList.length === 1 && !Array.isArray(serializedList[0])) {
+        serializedData = serializedList[0];
+    }
+    else {
+        serializedData = serializedList;
+    }
     if (stringify === false) {
         return serializedData;
     }
@@ -392,7 +449,7 @@ Editor.serialize.asAsset = function (uuid) {
     if ( !uuid ) {
         Fire.error('[Editor.serialize.asAsset] The uuid must be non-nil!');
     }
-    var pseudoAsset = new Asset();
+    var pseudoAsset = new Fire.Asset();
     pseudoAsset._uuid = uuid;
     return pseudoAsset;
 };

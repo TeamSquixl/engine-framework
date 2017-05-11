@@ -30,9 +30,17 @@ Fire.info = function () {
  * @param {any|string} obj - A JavaScript string containing zero or more substitution strings.
  * @param {any} ...subst - JavaScript objects with which to replace substitution strings within msg. This gives you additional control over the format of the output.
  */
-Fire.warn = function () {
-    console.warn.apply(console, arguments);
-};
+if (console.warn) {
+    Fire.warn = function () {
+        console.warn.apply(console, arguments);
+    };
+}
+else {
+    Fire.warn = function () {
+        arguments[0] = ' WARN: ' + arguments[0];
+        console.log.apply(console, arguments);
+    };
+}
 
 /**
  * Outputs an error message to the Fireball Console (editor) or Web Console (runtime).
@@ -43,7 +51,15 @@ Fire.warn = function () {
  * @param {any} ...subst - JavaScript objects with which to replace substitution strings within msg. This gives you additional control over the format of the output.
  */
 // error会dump call stack，用bind可以避免dump Fire.error自己。
-Fire.error = console.error.bind(console);
+if (console.error) {
+    Fire.error = console.error.bind(console);
+}
+else {
+    Fire.error = function () {
+        arguments[0] = 'ERROR: ' + arguments[0];
+        console.log.apply(console, arguments);
+    }
+}
 
 /**
  * show error stacks in unit tests

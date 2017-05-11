@@ -18,17 +18,22 @@ Fire.JS.mixin(Runtime, {
     registerMixin: register.registerMixin,
 
     EngineWrapper: require('./wrappers/engine'),
-    registerEngine: register.registerEngine
+    registerEngine: register.registerEngine,
+
+    Helpers: require('./helpers')
 });
 
 // load utility methods
-require('./extends/node');
-require('./extends/scene');
-require('./extends/engine');
+require('./extends/node-extends');
+require('./extends/scene-extends');
+require('./extends/engine-extends');
 
 // register a default mixin solution
 var mixin = require('./mixin');
 register.registerMixin(mixin);
+
+// settings for editor
+Runtime.Settings = require('./settings');
 
 /**
  * @module Fire
@@ -36,15 +41,13 @@ register.registerMixin(mixin);
 
 Fire.getWrapperType = register.getWrapperType;
 Fire.menuToWrapper = register.menuToWrapper;
-Fire.node = NodeWrapper.getWrapper;
-Fire.mixin = register.getMixinOptions().mixin;
 
-/**
- * The SceneWrapper class registered by runtime.
- * @property SceneWrapperImpl
- * @type {Fire.Runtime.SceneWrapper}
- */
-Fire.JS.get(Fire, 'SceneWrapperImpl', register.getRegisteredSceneWrapper);
+var mixin = register.getMixinOptions();
+Fire.mixin = mixin.mixin;
+Fire.hasMixin = mixin.hasMixin;
+Fire.unMixin = mixin.unMixin;
+
+Fire.find = require('./find');
 
 
 

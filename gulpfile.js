@@ -4,12 +4,13 @@ var requireDir = require('require-dir');
 // specify game project paths for tasks.
 global.paths = {
     src: './src',
+    jsEntry: './build-entry',
     outDir: './bin',
     outFile: 'engine-framework.js',
 
     test: {
-        src: 'test/unit/**/*.js',
-        runner: 'test/lib/runner.html',
+        src: 'qunit/unit/**/*.js',
+        runner: 'qunit/lib/runner.html',
         lib_dev: [
             'bin/engine-framework.test.dev.js',
         ],
@@ -19,7 +20,6 @@ global.paths = {
     },
 
     get scripts() { return this.src + '/**/*.js'; },
-    get jsEntry() { return this.src + '/index'; }
 };
 
 // require all tasks in gulp/tasks, including sub-folders

@@ -72,25 +72,31 @@ var _iterative = function (obj, serialized, refInfos) {
     if (typeof obj !== 'object') {
         return;
     }
-    var element;
     obj._iN$t = true;
     refInfos.temporaryDataList.push(obj);
+    if (obj.content) {
+        var type = obj.__type__ && Fire.JS._getClassById(obj.__type__);
+        if (type && type.prototype._serialize) {
+            // skip customized data
+            return;
+        }
+    }
+
+    var element;
     if (Array.isArray(obj)) {
         for (var key = 0; key < obj.length; key++) {
             element = obj[key];
-            if (!element) {
-                continue;
+            if (element) {
+                _traversalChild(element, key, obj, serialized, refInfos);
             }
-            _traversalChild(element, key, obj, serialized, refInfos);
         }
     }
     else {
         for (var i in obj) {
             element = obj[i];
-            if (!element) {
-                continue;
+            if (element) {
+                _traversalChild(element, i, obj, serialized, refInfos);
             }
-            _traversalChild(element, i, obj, serialized, refInfos);
         }
     }
 };

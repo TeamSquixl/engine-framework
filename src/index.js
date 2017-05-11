@@ -11,7 +11,7 @@ if (FIRE_EDITOR) {
     }
 }
 
-if (Fire.isWeb) {
+if (!(Fire.isEditor && Fire.isCoreLevel)) {
     // PAGE LEVEL
     Fire.Runtime = require('./runtime');
 }

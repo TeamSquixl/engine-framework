@@ -27,7 +27,7 @@ function test () {
         console.error('Please run "npm install gulp-qunit" before running "gulp test".');
         throw e;
     }
-    return gulp.src('test/unit/runner.html', { read: false })
+    return gulp.src('qunit/unit/runner.html', { read: false })
         .pipe(qunit({ timeout: TimeOutInSeconds }));
 }
 

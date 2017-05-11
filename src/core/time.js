@@ -1,4 +1,8 @@
-﻿/**
+﻿
+var lastUpdateTime = 0;
+var startTime = 0;
+
+/**
  * !#en The interface to get time information from Fireball.
  *
  * See [Time](/en/scripting/time/)
@@ -9,8 +13,7 @@
  * @class Time
  * @static
  */
-var Time = (function () {
-    var Time = {};
+var Time = {
 
     /**
      * The time at the beginning of this frame. This is the time in seconds since the start of the game.
@@ -18,7 +21,7 @@ var Time = (function () {
      * @type {number}
      * @readOnly
      */
-    Time.time = 0;
+    time: 0,
 
     /**
      * The time at the beginning of this frame. This is the real time in seconds since the start of the game.
@@ -28,7 +31,7 @@ var Time = (function () {
      * @type {number}
      * @readOnly
      */
-    Time.realTime = 0;
+    realTime: 0,
 
     /**
      * The time in seconds it took to complete the last frame. Use this property to make your game frame rate independent.
@@ -36,7 +39,7 @@ var Time = (function () {
      * @type {number}
      * @readOnly
      */
-    Time.deltaTime = 0;
+    deltaTime: 0,
 
     /**
      * The total number of frames that have passed.
@@ -44,7 +47,7 @@ var Time = (function () {
      * @type {number}
      * @readOnly
      */
-    Time.frameCount = 0;
+    frameCount: 0,
 
     /**
      * The maximum time a frame can take.
@@ -52,43 +55,47 @@ var Time = (function () {
      * @type {number}
      * @readOnly
      */
-    Time.maxDeltaTime = 0.3333333;
-
-    var lastUpdateTime = 0;
-    var startTime = 0;
+    maxDeltaTime: 0.3333333,
 
     /**
-     * @method Fire.Time._update
+     * @method _update
      * @param {number} timestamp
      * @param {Boolean} [paused=false] if true, only realTime will be updated
      * @param {number} [maxDeltaTime=Time.maxDeltaTime]
      * @private
      */
-    Time._update = function (timestamp, paused, maxDeltaTime) {
+    _update: function (timestamp, paused, maxDeltaTime) {
         if (!paused) {
             maxDeltaTime = maxDeltaTime || Time.maxDeltaTime;
             var delta = timestamp - lastUpdateTime;
             delta = Math.min(maxDeltaTime, delta);
+            Time.deltaTime = delta;
             lastUpdateTime = timestamp;
 
+            if (Time.frameCount === 0) {
+                startTime = timestamp;
+            }
+            else {
+                Time.time += delta;
+                Time.realTime = timestamp - startTime;
+            }
             ++Time.frameCount;
-            Time.deltaTime = delta;
-            Time.time += delta;
         }
-        Time.realTime = timestamp - startTime;
-    };
+    },
 
-    Time._restart = function (timestamp) {
+    /**
+     * @method _restart
+     * @param {number} timestamp
+     * @private
+     */
+    _restart: function (timestamp) {
         Time.time = 0;
         Time.realTime = 0;
         Time.deltaTime = 0;
         Time.frameCount = 0;
         lastUpdateTime = timestamp;
-        startTime = timestamp;
-    };
-
-    return Time;
-})();
+    },
+};
 
 Fire.Time = Time;
 

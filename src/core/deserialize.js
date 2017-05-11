@@ -1,4 +1,6 @@
+//var NodeSavedAsWrapper = require('./definition').NodeSavedAsWrapper;
 var JS = require('./js');
+var FObject = Fire.FObject;
 
 var ENABLE_TARGET = FIRE_EDITOR;
 
@@ -183,48 +185,56 @@ var _Deserializer = (function () {
 
     function _deserializeFireClass(self, obj, serialized, klass, target) {
         var props = klass.__props__;
-        if (!props) {
-            return;
-        }
         for (var p = 0; p < props.length; p++) {
             var propName = props[p];
             var attrs = Fire.attr(klass, propName);
             // assume all prop in __props__ must have attr
             var rawType = attrs.rawType;
             if (!rawType) {
-                if (attrs.serializable === false) {
-                    continue;   // skip nonSerialized
-                }
                 if (!self._editor && attrs.editorOnly) {
                     continue;   // skip editor only if not editor
                 }
+                if (attrs.serializable === false) {
+                    continue;   // skip nonSerialized
+                }
                 var prop = serialized[propName];
-                if (typeof prop !== 'undefined') {
-                    if (typeof prop !== 'object') {
-                        obj[propName] = prop;
-                    }
-                    else {
-                        if (prop) {
-                            if (!prop.__uuid__ && typeof prop.__id__ === 'undefined') {
-                                if (ENABLE_TARGET) {
-                                    obj[propName] = _deserializeObject(self, prop, target && target[propName]);
-                                }
-                                else {
-                                    obj[propName] = _deserializeObject(self, prop);
-                                }
+                if (typeof prop === 'undefined') {
+                    continue;
+                }
+                if (typeof prop !== 'object') {
+                    obj[propName] = prop;
+                }
+                else {
+                    if (prop) {
+                        if (attrs.isRuntimeNode/* || (prop._objFlags & NodeSavedAsWrapper)*/) {
+                            self.result.wrapperToNode.register(obj, propName);
+                        }
+                        if (!prop.__uuid__ && typeof prop.__id__ === 'undefined') {
+                            if (ENABLE_TARGET) {
+                                obj[propName] = _deserializeObject(self, prop, target && target[propName]);
                             }
                             else {
-                                if (ENABLE_TARGET) {
-                                    self._deserializeObjField(obj, prop, propName, target && obj);
-                                }
-                                else {
-                                    self._deserializeObjField(obj, prop, propName);
-                                }
+                                obj[propName] = _deserializeObject(self, prop);
                             }
                         }
                         else {
-                            obj[propName] = null;
+                            if (ENABLE_TARGET) {
+                                self._deserializeObjField(obj, prop, propName, target && obj);
+                            }
+                            else {
+                                self._deserializeObjField(obj, prop, propName);
+                            }
+                            //if (saveUrlAsAsset) {
+                            //    // redirect to setter
+                            //    var result = self.result;
+                            //    if (result.uuidObjList[result.uuidObjList.length - 1] === obj) {
+                            //        result.uuidPropList[result.uuidPropList.length - 1] = "_set$" + propName;
+                            //    }
+                            //}
                         }
+                    }
+                    else {
+                        obj[propName] = null;
                     }
                 }
             }
@@ -276,13 +286,12 @@ var _Deserializer = (function () {
                 obj = new klass();
             }
 
+            if (obj instanceof FObject && obj._deserialize) {
+                obj._deserialize(serialized.content, self);
+                return obj;
+            }
             if ( Fire._isFireClass(klass) ) {
-                if (! obj._deserialize) {
-                    _deserializeFireClass(self, obj, serialized, klass, target);
-                }
-                else {
-                    obj._deserialize(serialized.content, self);
-                }
+                _deserializeFireClass(self, obj, serialized, klass, target);
             }
             else {
                 _deserializeTypedObject(self, obj, serialized);
@@ -354,7 +363,8 @@ var _Deserializer = (function () {
 Fire.deserialize = function (data, result, options) {
     var isEditor = (options && 'isEditor' in options) ? options.isEditor : FIRE_EDITOR;
     var classFinder = (options && options.classFinder) || JS._getClassById;
-    var createAssetRefs = (options && options.createAssetRefs) || Fire.isEditorCore;
+    // 启用 createAssetRefs 后，如果有 url 属性则会被统一强制设置为 { uuid: 'xxx' }，必须后面再特殊处理
+    var createAssetRefs = (options && options.createAssetRefs) || Fire.isCoreLevel;
     var target = ENABLE_TARGET && (options && options.target);
 
     if ((FIRE_EDITOR || FIRE_TEST) && Fire.isNode && Buffer.isBuffer(data)) {
@@ -368,10 +378,9 @@ Fire.deserialize = function (data, result, options) {
     if (createAssetRefs && !result) {
         result = new Fire._DeserializeInfo();
     }
-
-    Fire._isCloning = true;
+    Fire.engine._isCloning = true;
     var deserializer = new _Deserializer(data, result, target, isEditor, classFinder);
-    Fire._isCloning = false;
+    Fire.engine._isCloning = false;
 
     if (createAssetRefs) {
         result.assignAssetsBy(Editor.serialize.asAsset);
@@ -379,6 +388,49 @@ Fire.deserialize = function (data, result, options) {
 
     return deserializer.deserializedData;
 };
+
+function RedirectWrapperToNode () {
+    // list of the nodes serialized as wrapper, should be convert to node after scene created
+    this.objList = [];
+    // the corresponding field name which serialized as wrapper
+    this.keyList = [];
+}
+RedirectWrapperToNode.prototype.register = function (obj, key) {
+    this.objList.push(obj);
+    this.keyList.push(key);
+};
+RedirectWrapperToNode.prototype.apply = function () {
+    var NodeWrapper = Fire.Runtime.NodeWrapper;
+    var objs = this.objList;
+    var keys = this.keyList;
+    for (var i = 0; i < objs.length; i++) {
+        var obj = objs[i];
+        var key = keys[i];
+        var wrapper = obj[key];
+        if (Array.isArray(wrapper)) {
+            for (var j = 0; j < wrapper.length; j++) {
+                var item = wrapper[j];
+                if (item instanceof NodeWrapper && item.targetN) {
+                    wrapper[j] = item.targetN;
+                }
+            }
+        }
+        else {
+            if (wrapper instanceof NodeWrapper && wrapper.targetN) {
+                obj[key] = wrapper.targetN;
+            }
+        }
+    }
+};
+RedirectWrapperToNode.prototype.reset = function () {
+    this.objList.length = 0;
+    this.keyList.length = 0;
+};
+RedirectWrapperToNode.prototype.concat = function (other) {
+    this.objList = this.objList.concat(other.objList);
+    this.keyList = this.keyList.concat(other.keyList);
+};
+Fire._RedirectWrapperToNode = RedirectWrapperToNode;
 
 /**
  * !#zh 包含反序列化时的一些信息
@@ -411,19 +463,14 @@ Fire._DeserializeInfo = function () {
      */
     this.uuidPropList = [];
 
-    // raw objects need to load
-    // (不用存rawList因为它的uuid可以从asset上获得)
-
     /**
      * the corresponding field name which referenced to the raw object
      * @property rawProp
      * @type {string}
      */
     this.rawProp = '';
-    // @property {Asset[]} rawObjList - the obj list whose corresponding raw object needs to load
-    //this.rawObjList = [];
-    //@property {string[]} rawPropList - the corresponding field name which referenced to the raw object
-    //this.rawPropList = [];
+
+    this.wrapperToNode = new RedirectWrapperToNode();
 };
 
 /**
@@ -436,6 +483,7 @@ Fire._DeserializeInfo.prototype.reset = function () {
     this.rawProp = '';
     //this.rawObjList.length = 0;
     //this.rawPropList.length = 0;
+    this.wrapperToNode.reset();
 };
 
 /**
@@ -476,27 +524,67 @@ Fire._DeserializeInfo.prototype.assignAssetsBy = function (getter) {
     return success;
 };
 
-Fire.deserialize.applyMixinProps = function (data, classToMix, target) {
+// used after scene created
+Fire.deserialize.applyMixinProps = function (deserializedData, classToMix, target, wrapperToNode) {
     var props = classToMix.__props__;
-    if (props) {
-        for (var p = 0; p < props.length; p++) {
-            var propName = props[p];
-            var attrs = Fire.attr(classToMix, propName);
-            // assume all prop in __props__ must have attr
-            if (attrs.serializable === false) {
-                continue;   // skip nonSerialized
+    for (var p = 0; p < props.length; p++) {
+        var propName = props[p];
+        var attrs = Fire.attr(classToMix, propName);
+        // assume all prop in __props__ must have attr
+        if (attrs.serializable === false) {
+            continue;   // skip nonSerialized
+        }
+        if (!FIRE_EDITOR && attrs.editorOnly) {
+            continue;   // skip editor only if not editor
+        }
+        var prop = deserializedData[propName];
+
+        // ignore types not equals to specified
+        if (!Array.isArray(attrs.default)) {
+            if (attrs.saveUrlAsAsset) {
+                if (typeof prop !== 'string') {
+                    continue;
+                }
             }
-            if (!FIRE_EDITOR && attrs.editorOnly) {
-                continue;   // skip editor only if not editor
-            }
-            var prop = data[propName];
-            if (typeof prop !== 'undefined') {
-                target[propName] = prop;
+            else if (attrs.expectedTypeOf && typeof prop !== attrs.expectedTypeOf) {
+                continue;
             }
         }
-        //if (props[props.length - 1] === '_$erialized') {
-        //    // save original serialized data
-        //    target._$erialized = data;
-        //}
+        else if (prop && !Array.isArray(prop)) {
+            // expected array but not
+            continue;
+        }
+
+        if (prop && typeof prop === 'object') {
+            /*var fromWrapper = prop._N$aW;
+            if (fromWrapper) {
+                prop = fromWrapper;
+            }
+            else */if (!attrs.isRuntimeNode) {
+                if (attrs.ctor) {
+                    // check class type
+                    if (!Fire.isChildClassOf(prop.constructor, attrs.ctor) && !Array.isArray(prop)) {
+                        // ignore types not inherit from specified
+                        continue;
+                    }
+                }
+                target[propName] = prop;
+                continue;
+            }
+            if (prop.targetN) {
+                target[propName] = prop.targetN;
+            }
+            else {
+                target[propName] = prop;
+                wrapperToNode.register(target, propName);
+            }
+        }
+        else if (typeof prop !== 'undefined') {
+            target[propName] = prop;
+        }
     }
+    //if (props[props.length - 1] === '_$erialized') {
+    //    // save original serialized deserializedData
+    //    target._$erialized = deserializedData;
+    //}
 };

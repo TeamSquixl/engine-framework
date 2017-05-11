@@ -1,1 +1,0 @@
-Fire.Asset = require('./asset');

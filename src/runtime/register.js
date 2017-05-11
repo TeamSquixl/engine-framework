@@ -2,15 +2,19 @@
  * @module Fire.Runtime
  */
 
-var getClassName = Fire.JS.getClassName;
+var JS = Fire.JS;
+var getClassName = JS.getClassName;
 
 var NodeWrapper = require('./wrappers/node');
 var SceneWrapper = require('./wrappers/scene');
 var EngineWrapper = require('./wrappers/engine');
 
-var runtimeSceneWrapper = null;
+//var runtimeSceneWrapper = null;
 var runtimeMixinOptions = null;
 
+//This dictionary stores all the registered WrapperTypes, and use MenuPath as key.
+//@property menuToWrapper
+//@type {object}
 var menuToWrapper = {};
 
 /**
@@ -29,14 +33,14 @@ function registerNodeType (nodeType, nodeWrapper, menuPath) {
         Fire.error('%s is already registered!', getClassName(nodeType));
         return;
     }
-    if (Fire.isChildClassOf(nodeWrapper, SceneWrapper)) {
-        if (!FIRE_TEST && runtimeSceneWrapper) {
-            Fire.error('The %s can only register once!', getClassName(SceneWrapper));
-        }
-        else {
-            runtimeSceneWrapper = nodeWrapper;
-        }
-    }
+    //if (Fire.isChildClassOf(nodeWrapper, SceneWrapper)) {
+    //    if (!FIRE_TEST && runtimeSceneWrapper) {
+    //        Fire.error('The %s can only register once!', getClassName(SceneWrapper));
+    //    }
+    //    else {
+    //        runtimeSceneWrapper = nodeWrapper;
+    //    }
+    //}
 
     nodeType.prototype._FB_WrapperType = nodeWrapper;
 
@@ -57,7 +61,7 @@ function registerMixin (mixinOptions) {
 }
 
 /**
- * 注册一份引擎实例，注册后的引擎可以通过 Fire.Engine 进行访问。
+ * 注册一份引擎实例，注册后的引擎可以通过 Fire.engine 进行访问。
  * @method registerEngine
  * @param {EngineWrapper} engineInstance
  */
@@ -67,12 +71,12 @@ function registerEngine (engineInstance) {
             Fire.error('The engine to register must be child class of %s', getClassName(EngineWrapper));
             return;
         }
-        if (Fire.Engine) {
+        if (Fire.engine) {
             Fire.error('The engine is already registered!');
             return;
         }
     }
-    Fire.Engine = engineInstance;
+    Fire.engine = engineInstance;
 }
 
 /**
@@ -80,7 +84,7 @@ function registerEngine (engineInstance) {
  */
 
 /**
- * @property {EngineWrapper} Engine - The instance of current registered engine.
+ * @property {EngineWrapper} engine - The instance of current registered engine.
  */
 
 /**
@@ -107,15 +111,28 @@ function getWrapperType (nodeOrNodeType) {
 module.exports = {
     registerNodeType: registerNodeType,
     getWrapperType: getWrapperType,
-    getRegisteredSceneWrapper: function () {
-        return runtimeSceneWrapper;
+    //getRegisteredSceneWrapper: function () {
+    //    return runtimeSceneWrapper;
+    //},
+
+    registerToCoreLevel: function () {
+        if (FIRE_EDITOR) {
+            // register create node menu
+            var menuTmpl = [];
+            for (var menuPath in menuToWrapper) {
+                var basename = menuPath.split('/').slice(-1)[0];
+                menuTmpl.push({
+                    label: menuPath,
+                    message: 'scene:create-node-by-classid',
+                    params: [
+                        'New ' + basename,
+                        JS._getClassId(menuToWrapper[menuPath])
+                    ],
+                });
+            }
+            Editor.sendToCore('app:register-menu', 'create-node', menuTmpl);
+        }
     },
-    /**
-     * This dictionary stores all the registered WrapperTypes, and use MenuPath as key.
-     * @property menuToWrapper
-     * @type {object}
-     */
-    menuToWrapper: menuToWrapper,
 
     registerMixin: registerMixin,
     /**

@@ -5,25 +5,10 @@
 var JS = Fire.JS;
 var Vec2 = Fire.Vec2;
 var Rect = Fire.Rect;
-var NYI = require('./utils').NYI;
-
-function NYI_Accessor (defVal, attrs, noSetter) {
-    var prop = {
-        get: function () {
-            NYI();
-            return defVal;
-        }
-    };
-    if (!noSetter) {
-        prop.set = NYI;
-    }
-    if (attrs) {
-        return JS.mixin(prop, attrs);
-    }
-    else {
-        return prop;
-    }
-}
+var Utils = require('./utils');
+var NYI = Utils.NYI;
+var NYI_Accessor = Utils.NYI_Accessor;
+var NIL = Utils.NIL;
 
 var INVISIBLE = {
     visible: false
@@ -32,14 +17,19 @@ var INVISIBLE = {
 var ERR_NaN = 'The %s must not be NaN';
 
 /**
- * 这个类用来封装编辑器针对节点的操作。
- * Note: 接口中包含 "Node" 的使用的都是 Runtime 的原生 Node 类型。
+ * !#zh: 这个类用来封装编辑器针对节点的操作。
+ * Note: 接口中以 "N" 结尾的使用的都是 Runtime 的原生 Node 类型。
+ * !#en: This is a wrapper class for operating node with editor script
+ * The instance of this class is a wrapper, not a node.
+ * You can use `Fire(node)` to get the wrapper if you really want to
+ * use these API on runtime nodes.
+ * Note: API that has a suffix "N" return Runtime's native Node type
  *
  * You should override:
  * - createEmpty (static)
  * - name
- * - parentNode
- * - childNodes
+ * - parentN
+ * - childrenN
  * - position
  * - worldPosition
  * - rotation
@@ -48,10 +38,13 @@ var ERR_NaN = 'The %s must not be NaN';
  * - worldScale
  * - getWorldBounds
  * - getWorldOrientedBounds
+ * - transformPoints
+ * - inverseTransformPoints
+ * - onBeforeSerialize (so that the node's properties can be serialized in wrapper)
  * - createNode
- * - onBeforeSerialize (so that node's properties can be serialized in wrapper)
  *
  * You may want to override:
+ * - animatableInEditor (static)
  * - setSiblingIndex
  * - getSiblingIndex
  * - x
@@ -60,6 +53,12 @@ var ERR_NaN = 'The %s must not be NaN';
  * - worldY
  * - scaleX
  * - scaleY
+ * - scenePosition
+ * - attached
+ * - retain
+ * - release
+ * - onFocusInEditor
+ * - onLostFocusInEditor
  *
  * @class NodeWrapper
  * @constructor
@@ -67,16 +66,28 @@ var ERR_NaN = 'The %s must not be NaN';
  */
 var NodeWrapper = Fire.Class({
     name: 'Fire.Runtime.NodeWrapper',
+    extends: Fire.FObject,
+
     constructor: function () {
         /**
-         * The target node to wrap.
-         * @property target
+         * The targetN node to wrap.
+         * @property targetN
          * @type {RuntimeNode}
          */
-        this.target = arguments[0];
+        this.targetN = arguments[0];
+        if (this.targetN) {
+            var uuid = this.uuid;
+            if (uuid && FIRE_EDITOR) {
+                Fire.engine.attachedWrappersForEditor[uuid] = this;
+            }
+            this.attached();
+        }
 
-        //if (FIRE_EDITOR && !this.target) {
-        //    Fire.warn('target of %s must be non-nil', JS.getClassName(this));
+        this.gizmo = null;
+        this.mixinGizmos = [];
+
+        //if (FIRE_EDITOR && !this.targetN) {
+        //    Fire.warn('targetN of %s must be non-nil', JS.getClassName(this));
         //}
     },
 
@@ -105,26 +116,51 @@ var NodeWrapper = Fire.Class({
             }
         },
 
+        /**
+         * uuid
+         * @property _id
+         * @type {string}
+         * @private
+         */
+        _id: {
+            default: '',
+            editorOnly: true
+        },
+
+        /**
+         * !#en the UUID, must be type string, editor only
+         * !#zh 节点的 UUID，是字符串类型，只能在编辑器里用
+         * @property uuid
+         * @type {string}
+         * @readOnly
+         */
+        uuid: {
+            get: function () {
+                return this._id || (this._id = Editor.uuid());
+            },
+            visible: false
+        },
+
         // HIERARCHY
 
         /**
-         * The parent of the node.
-         * If this is the top most node in hierarchy, the returns value of Fire.node(this.parent) must be type SceneWrapper.
+         * The runtime parent of the node.
+         * If this is the top most node in hierarchy, the wrapper of its parent must be type SceneWrapper.
          * Changing the parent will keep the transform's local space position, rotation and scale the same but modify
          * the world space position, scale and rotation.
-         * @property parentNode
+         * @property parentN
          * @type {RuntimeNode}
          */
-        parentNode: NYI_Accessor(null, INVISIBLE),
+        parentN: NYI_Accessor(null, INVISIBLE, FIRE_EDITOR && 'parentN'),
 
         /**
          * Returns the array of children. If no child, this method should return an empty array.
          * The returns array can be modified ONLY in setSiblingIndex.
-         * @property childNodes
+         * @property childrenN
          * @type {RuntimeNode[]}
          * @readOnly
          */
-        childNodes: NYI_Accessor([], INVISIBLE, true),
+        childrenN: NYI_Accessor([], INVISIBLE, true, FIRE_EDITOR && 'childrenN'),
 
         // TRANSFORM
 
@@ -133,7 +169,7 @@ var NodeWrapper = Fire.Class({
          * @property position
          * @type {Fire.Vec2}
          */
-        position: NYI_Accessor(Vec2.zero),
+        position: NYI_Accessor(Vec2.zero, FIRE_EDITOR && 'position'),
 
         /**
          * The local x position in its parent's coordinate system
@@ -231,27 +267,27 @@ var NodeWrapper = Fire.Class({
         },
 
         /**
-         * The counterclockwise degrees of rotation relative to the parent
+         * The clockwise degrees of rotation relative to the parent
          * @property rotation
          * @type {number}
          */
-        rotation: NYI_Accessor(0, {
-            tooltip: "The counterclockwise degrees of rotation relative to the parent"
-        }),
+        rotation: NYI_Accessor(0, FIRE_EDITOR && {
+            tooltip: "The clockwise degrees of rotation relative to the parent"
+        }, FIRE_EDITOR && 'rotation'),
 
         /**
-         * The counterclockwise degrees of rotation in world space
+         * The clockwise degrees of rotation in world space
          * @property worldRotation
          * @type {number}
          */
-        worldRotation: NYI_Accessor(0, INVISIBLE),
+        worldRotation: NYI_Accessor(0, INVISIBLE, FIRE_EDITOR && 'worldRotation'),
 
         /**
          * The local scale factor relative to the parent
          * @property scale
          * @type {Fire.Vec2}
          */
-        scale: NYI_Accessor(Vec2.one),
+        scale: NYI_Accessor(Vec2.one, FIRE_EDITOR && 'scale'),
 
         /**
          * The local x scale factor relative to the parent
@@ -303,7 +339,19 @@ var NodeWrapper = Fire.Class({
          * @type {Fire.Vec2}
          * @readOnly
          */
-        worldScale: NYI_Accessor(Vec2.one, INVISIBLE, true)
+        worldScale: NYI_Accessor(Vec2.one, INVISIBLE, true, FIRE_EDITOR && 'worldScale'),
+
+        root: {
+            get: function () {
+                var node = this;
+                var next = node.parent;
+                while (next) {
+                    node = next;
+                    next = next.parent;
+                }
+                return node;
+            }
+        }
     },
 
     statics: {
@@ -318,19 +366,38 @@ var NodeWrapper = Fire.Class({
         //        Fire.error('Not yet implemented');
         //    }
         //    return null;
-        //},
+        //}
+
+        /**
+         * If true, the engine will keep updating this node in 60 fps when it is selected,
+         * otherwise, it will update only if necessary
+         * @property {Boolean} animatableInEditor
+         * @default false
+         * @static
+         */
+        animatableInEditor: false,
+
+        /**
+         * If false, Hierarchy will disallow to drag child into this node, and all children will be hidden.
+         * @property {Boolean} canHaveChildrenInEditor
+         * @default true
+         * @static
+         */
+        canHaveChildrenInEditor: true
     },
 
     // SERIALIZATION
 
     /**
      * Creates a new node using the properties defined in this wrapper, the properties will be serialized in the scene.
-     * Note: 不需要设置新节点的父子关系，也不需要设置 wrapper 的 target 为新节点.
+     * Note: 不需要设置新节点的父子关系，也不需要设置 wrapper 的 targetN 为新节点.
      * @method createNode
      * @return {RuntimeNode} - the created node
      */
     createNode: function () {
-        NYI();
+        if (FIRE_EDITOR) {
+            NYI('createNode');
+        }
         return null;
     },
 
@@ -344,12 +411,26 @@ var NodeWrapper = Fire.Class({
 
     /**
      * Creates a new node and bind with this wrapper.
-     * @method onAfterDeserialize
+     * @method createAndAttachNode
      */
-    onAfterDeserialize: function () {
+    createAndAttachNode: function () {
         var node = this.createNode();
-        this.target = node;
+        this.targetN = node;
         node._FB_wrapper = this;
+        if (FIRE_EDITOR) {
+            var uuid = this.uuid;
+            if (uuid) {
+                Fire.engine.attachedWrappersForEditor[uuid] = this;
+            }
+        }
+        this.attached();
+    },
+
+    /**
+     * Invoked after the wrapper's targetN is assigned. Override this method if you need to initialize your node.
+     * @method attached
+     */
+    attached: function () {
     },
 
     ///**
@@ -357,7 +438,7 @@ var NodeWrapper = Fire.Class({
     // * When the scene is later loaded, the data you returned is passed to the wrapper's deserialize method so you can
     // * restore the node.
     // * @method serialize
-    // * @return {object} - a JSON represents the state of the target node
+    // * @return {object} - a JSON represents the state of the targetN node
     // */
     //serialize: function (data) {
     //    if (FIRE_EDITOR) {
@@ -408,7 +489,7 @@ var NodeWrapper = Fire.Class({
      * @return {number}
      */
     getSiblingIndex: function () {
-        return Fire.node(this.parentNode).childNodes.indexOf(this.target);
+        return Fire(this.parentN).childrenN.indexOf(this.targetN);
     },
 
     /**
@@ -419,8 +500,8 @@ var NodeWrapper = Fire.Class({
      * @param {number} index - new zero-based index of the node, -1 will move to the end of children.
      */
     setSiblingIndex: function (index) {
-        var siblings = Fire.node(this.parentNode).childNodes;
-        var item = this.target;
+        var siblings = Fire(this.parentN).childrenN;
+        var item = this.targetN;
         index = index !== -1 ? index : siblings.length - 1;
         var oldIndex = siblings.indexOf(item);
         if (index !== oldIndex) {
@@ -449,6 +530,22 @@ var NodeWrapper = Fire.Class({
         this.rotation += angle;
     },
 
+    /**
+     * Transforms position from local space to world space.
+     * @method transformPointToWorld
+     * @param {Vec2} point
+     * @return {Vec2}
+     */
+    transformPointToWorld: FIRE_EDITOR ? NIL : NYI.bind('transformPointToWorld'),
+
+    /**
+     * Transforms position from local space to world space.
+     * @method transformPointToLocal
+     * @param {Vec2} point
+     * @return {Vec2}
+     */
+    transformPointToLocal: FIRE_EDITOR ? NIL : NYI.bind('transformPointToLocal'),
+
     // RENDERER
 
     /**
@@ -459,7 +556,9 @@ var NodeWrapper = Fire.Class({
      * @return {Fire.Rect} - the rect represented in world position
      */
     getWorldBounds: function (out) {
-        NYI();
+        if (FIRE_EDITOR) {
+            NYI('getWorldBounds');
+        }
         return new Rect();
     },
 
@@ -475,22 +574,49 @@ var NodeWrapper = Fire.Class({
      *                    in the sequence of BottomLeft, TopLeft, TopRight, BottomRight
      */
     getWorldOrientedBounds: function (out_bl, out_tl, out_tr, out_br){
-        NYI();
+        if (FIRE_EDITOR) {
+            NYI('getWorldOrientedBounds');
+        }
         return [Vec2.zero, Vec2.zero, Vec2.zero, Vec2.zero];
-    }
+    },
+
+    // MISC
+
+    /**
+     * Retains the ownership for JSB runtime.
+     * This increases the target node's reference count.
+     * @method retain
+     */
+    retain: function () {},
+
+    /**
+     * Releases the ownership immediately for JSB runtime.
+     * This decrements the target node's reference count.
+     * @method release
+     */
+    release: function () {},
+
+    // EDITOR
+
+    /**
+     * @method onFocusInEditor
+     */
+    onFocusInEditor: null,
+
+    /**
+     * @method onLostFocusInEditor
+     */
+    onLostFocusInEditor: null,
 });
 
-/**
- * @module Fire
- */
-
-/**
- * 返回跟 object 相互绑定的 NodeWrapper 实例，如果不存在将被创建。
- * @method node
- * @param {RuntimeNode} node
- * @return {Fire.Runtime.NodeWrapper}
- */
-NodeWrapper.getWrapper = function (node) {
+Fire._setWrapperGetter(function (node) {
+    if (node instanceof NodeWrapper) {
+        Fire.warn('Fire accept argument of type runtime node, not wrapper.');
+        return node;
+    }
+    if (!node) {
+        return null;
+    }
     var wrapper = node._FB_wrapper;
     if (!wrapper) {
         var Wrapper = Fire.getWrapperType(node);
@@ -503,6 +629,6 @@ NodeWrapper.getWrapper = function (node) {
         node._FB_wrapper = wrapper;
     }
     return wrapper;
-};
+});
 
 module.exports = NodeWrapper;

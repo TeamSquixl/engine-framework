@@ -66,7 +66,7 @@ var JS = {
             var source = arguments[i];
             if (source) {
                 if (typeof source !== 'object') {
-                    Fire.error('Fire.JS.mixin called on non-object:', source);
+                    Fire.error('Fire.JS.mixin: arguments must be type object:', source);
                     continue;
                 }
                 for ( var name in source) {
@@ -135,10 +135,12 @@ var JS = {
  * @return {string}
  */
 JS.getClassName = function (obj) {
-    if (typeof obj === 'function' && obj.prototype.__classname__) {
-        return obj.prototype.__classname__;
+    if (typeof obj === 'function') {
+        if (obj.prototype.__classname__) {
+            return obj.prototype.__classname__;
+        }
     }
-    if (obj && obj.constructor) {
+    else if (obj && obj.constructor) {
         if (obj.constructor.prototype && obj.constructor.prototype.hasOwnProperty('__classname__')) {
             return obj.__classname__;
         }
@@ -164,6 +166,18 @@ JS.getClassName = function (obj) {
         return retval !== 'Object' ? retval : null;
     }
     return null;
+};
+
+var TCID = 'Fire.TmpCId.';
+
+function getTempClassIdInEditor () {
+    if (FIRE_EDITOR) {
+        return TCID + Editor.uuid();
+    }
+}
+
+JS._isTempClassId = function (id) {
+    return FIRE_EDITOR && id.startsWith(TCID);
 };
 
 // id 注册
@@ -220,8 +234,11 @@ Fire.JS.unregisterClass to remove the id of unused class';
     JS.setClassName = function (className, constructor) {
         doSetClassName(className, constructor);
         // auto set class id
-        if (className && !constructor.prototype.hasOwnProperty('__cid__')) {
-            JS._setClassId(className, constructor);
+        if (!constructor.prototype.hasOwnProperty('__cid__')) {
+            var id = className || (FIRE_EDITOR && getTempClassIdInEditor());
+            if (id) {
+                JS._setClassId(id, constructor);
+            }
         }
     };
 
@@ -282,17 +299,29 @@ Fire.JS.unregisterClass to remove the id of unused class';
      * Get class id of the object
      * @method _getClassId
      * @param {object|function} obj - instance or constructor
+     * @param {boolean} [allowTempId=true] - can return temp id in editor
      * @return {string}
      * @private
      */
-    JS._getClassId = function (obj) {
+    JS._getClassId = function (obj, allowTempId) {
+        allowTempId = (typeof allowTempId !== 'undefined' ? allowTempId: true) && FIRE_EDITOR;
+
+        var res;
         if (typeof obj === 'function' && obj.prototype.hasOwnProperty('__cid__')) {
-            return obj.prototype.__cid__;
+            res = obj.prototype.__cid__;
+            if (!allowTempId && JS._isTempClassId(res)) {
+                return '';
+            }
+            return res;
         }
         if (obj && obj.constructor) {
             var prototype = obj.constructor.prototype;
             if (prototype && prototype.hasOwnProperty('__cid__')) {
-                return obj.__cid__;
+                res = obj.__cid__;
+                if (!allowTempId && JS._isTempClassId(res)) {
+                    return '';
+                }
+                return res;
             }
         }
         return '';
@@ -385,23 +414,23 @@ JS.set = function (obj, prop, setter, enumerable) {
  * @method obsolete
  * @param {any} obj - YourObject or YourClass.prototype
  * @param {string} obsoleted - "OldParam" or "YourClass.OldParam"
- * @param {string} newName - "NewParam"
+ * @param {string} newPropName - "NewParam"
  * @param {bool} [writable=false]
  */
-JS.obsolete = function (obj, obsoleted, newName, writable) {
+JS.obsolete = function (obj, obsoleted, newPropName, writable) {
     var oldName = obsoleted.split('.').slice(-1);
     JS.get(obj, oldName, function () {
         if (FIRE_DEV) {
-            Fire.warn('"%s" is deprecated, use "%s" instead please.', obsoleted, newName);
+            Fire.warn('"%s" is deprecated, use "%s" instead please.', obsoleted, newPropName);
         }
-        return obj[newName];
+        return obj[newPropName];
     });
     if (writable) {
         JS.set(obj, oldName, function (value) {
             if (FIRE_DEV) {
-                Fire.warn('"%s" is deprecated, use "%s" instead please.', obsoleted, newName);
+                Fire.warn('"%s" is deprecated, use "%s" instead please.', obsoleted, newPropName);
             }
-            obj[newName] = value;
+            obj[newPropName] = value;
         });
     }
 };
@@ -477,16 +506,11 @@ JS.String = {
      * @param {string} string
      * @param {string} searchString - The characters to be searched for at the start of this string.
      * @param {string} [position=0] - Optional. The position in this string at which to begin searching for searchString; defaults to 0.
-     * @return {Boolean}
+     * @return {boolean}
      */
-    startsWith: String.prototype.startsWith ?
-        function (string, searchString, position) {
-            return string.startsWith(searchString, position);
-        } :
-        function (string, searchString, position) {
-            position = position || 0;
-            return string.lastIndexOf(searchString, position) === position;
-        },
+    startsWith: function (string, searchString, position) {
+        return string.startsWith(searchString, position);
+    },
 
     /**
      * This method lets you determine whether or not a string ends with another string.
@@ -494,28 +518,13 @@ JS.String = {
      * @param {string} string
      * @param {string} searchString - The characters to be searched for at the end of this string.
      * @param {string} [position=0] - Optional. Search within this string as if this string were only this long; defaults to this string's actual length, clamped within the range established by this string's length.
-     * @return {Boolean}
+     * @return {boolean}
      */
-    endsWith: String.prototype.endsWith ?
-        function (string, searchString, position) {
-            return string.endsWith(searchString, position);
-        } :
-        function (string, searchString, position) {
-            if (typeof position === 'undefined' || position > string.length) {
-                position = string.length;
-            }
-            position -= searchString.length;
-            var lastIndex = string.indexOf(searchString, position);
-            return lastIndex !== -1 && lastIndex === position;
-        }
+    endsWith: function (string, searchString, position) {
+        return string.endsWith(searchString, position);
+    },
 };
 
-/**
- * @module Fire
- */
-/**
- * @property {object} JS - JS utilities accessible globally, see [JS module](./Fire.JS.html).
- */
 Fire.JS = JS;
 
 module.exports = JS;

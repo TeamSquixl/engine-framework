@@ -59,6 +59,10 @@ Fire.defineEnum = function (obj) {
     return enumType;
 };
 
+Fire.isEnumType = function (enumType) {
+    return enumType && enumType.hasOwnProperty('__enums__');
+};
+
 if (FIRE_DEV) {
     // check key order in object literal
     var _TestEnum = Fire.defineEnum({

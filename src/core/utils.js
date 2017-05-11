@@ -15,63 +15,6 @@ Fire.padLeft = function ( text, width, ch ) {
 };
 
 /**
- * @method fitRatio
- * @param {number} ratio - width / height
- * @param {number} destWidth
- * @param {number} destHeight
- * @return {array}
- */
-Fire.fitRatio = function ( ratio, destWidth, destHeight ) {
-    var srcWidth, srcHeight;
-    if ( ratio > 1 ) {
-        srcWidth = destWidth;
-        srcHeight = srcWidth / ratio;
-    }
-    else {
-        srcHeight = destHeight;
-        srcWidth = srcHeight * ratio;
-    }
-    return Fire.fitSize( srcWidth, srcHeight, destWidth, destHeight );
-};
-
-/**
- * @method fitSize
- * @param {number} srcWidth
- * @param {number} srcHeight
- * @param {number} destWidth
- * @param {number} destHeight
- * @return {number[]} - [width, height]
- */
-Fire.fitSize = function ( srcWidth, srcHeight, destWidth, destHeight ) {
-    var width, height;
-    if ( srcWidth > destWidth &&
-         srcHeight > destHeight )
-    {
-        width = destWidth;
-        height = srcHeight * destWidth/srcWidth;
-
-        if ( height > destHeight ) {
-            height = destHeight;
-            width = srcWidth * destHeight/srcHeight;
-        }
-    }
-    else if ( srcWidth > destWidth ) {
-        width = destWidth;
-        height = srcHeight * destWidth/srcWidth;
-    }
-    else if ( srcHeight > destHeight ) {
-        width = srcWidth * destHeight/srcHeight;
-        height = destHeight;
-    }
-    else {
-        width = srcWidth;
-        height = srcHeight;
-    }
-
-    return [width,height];
-};
-
-/**
  * @method getEnumList
  * @param {object} enumDef - the enum type defined from Fire.defineEnum
  * @return {object[]}
@@ -273,7 +216,7 @@ if (FIRE_DEV) {
         // * @return {Boolean} is {} ?
         // */
         isPlainEmptyObj_DEV: function (obj) {
-            if (!obj || obj.constructor !== ({}).constructor) {
+            if (!obj || obj.constructor !== Object) {
                 return false;
             }
             // jshint ignore: start

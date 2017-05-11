@@ -12,7 +12,8 @@ gulp.task('jshint', function () {
         .pipe(jshint({
             multistr: true,
             smarttabs: false,
-            loopfunc: true
+            loopfunc: true,
+            evil: true
         }))
         .pipe(jshint.reporter(reporter));
 });

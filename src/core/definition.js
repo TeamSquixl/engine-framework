@@ -1,50 +1,46 @@
 ﻿// global definitions
 
+var platform = require('./platform');
+Fire.Platform = platform;
+
 /**
  * @property {Boolean} isNode - !#en indicates whether executes in node.js application !#zh 是否在 nodejs 运行环境下
  */
 Fire.isNode = !!(typeof process !== 'undefined' && process.versions && process.versions.node);
 Fire.isNodeWebkit = !!(Fire.isNode && 'node-webkit' in process.versions);   // node-webkit
 Fire.isAtomShell = !!(Fire.isNode && 'atom-shell' in process.versions);     // atom-shell
-Fire.isApp = Fire.isNodeWebkit || Fire.isAtomShell;
-
-/**
- * indicates whether executes in common web browser
- * @property isPureWeb
- * @type {Boolean}
- */
-Fire.isPureWeb = !Fire.isNode && !Fire.isApp;                               // common web browser
 
 /**
  * indicates whether executes in Fireball editor
  * @property isEditor
  * @type {Boolean}
  */
-Fire.isEditor = Fire.isApp;     // by far there is no standalone client version, so app == editor
+Fire.isEditor = Fire.isNode && !platform.isDistributed;     // by far there is no standalone client version, so app == editor
 // Always export FIRE_EDITOR globally
 if (typeof FIRE_EDITOR === 'undefined') {
-    FIRE_EDITOR = Fire.isEditor;
+    eval('FIRE_EDITOR=Fire.isEditor');  // use eval to ignore uglify
 }
-
 
 /**
  * indicates whether executes in common web browser, or editor's window process(atom-shell's renderer context)
  * @property isWeb
  * @type {Boolean}
  */
-if (Fire.isAtomShell) {
-    Fire.isWeb = typeof process !== 'undefined' && process.type === 'renderer';
-}
-else {
-    Fire.isWeb = (typeof __dirname === 'undefined' || __dirname === null);
-}
+Fire.isWeb = (typeof window === 'object' && typeof document === 'object');
 
 /**
- * indicates whether executes in editor's core process(atom-shell's browser context)
- * @property isEditorCore
+ * indicates whether executes in common web browser
+ * @property isPureWeb
  * @type {Boolean}
  */
-Fire.isEditorCore = Fire.isApp && !Fire.isWeb;
+Fire.isPureWeb = Fire.isWeb && !Fire.isNode;      // common web browser
+
+/**
+ * Indicates whether executes in editor's main process (Electron's browser context)
+ * @property isCoreLevel
+ * @type {Boolean}
+ */
+Fire.isCoreLevel = Fire.isEditor && !Fire.isWeb;
 
 if (Fire.isNode) {
     /**
@@ -61,15 +57,25 @@ if (Fire.isNode) {
      */
     Fire.isWin32 = process.platform === 'win32';
 }
-else {
+else if (Fire.isWeb) {
     // http://stackoverflow.com/questions/19877924/what-is-the-list-of-possible-values-for-navigator-platform-as-of-today
-    var platform = window.navigator.platform;
-    Fire.isDarwin = platform.substring(0, 3) === 'Mac';
-    Fire.isWin32 = platform.substring(0, 3) === 'Win';
+    var np = window.navigator.platform;
+    Fire.isDarwin = np.substring(0, 3) === 'Mac';
+    Fire.isWin32 = np.substring(0, 3) === 'Win';
+}
+else if (platform.isNative) {
+    // native runtime
+    Fire.isDarwin = platform.isNativeDarwin;
+    Fire.isWin32 = platform.isNativeWin32;
+}
+else {
+    // unknown
+    Fire.isDarwin = false;
+    Fire.isWin32 = false;
 }
 
 if (Fire.isPureWeb) {
-    var win = window, nav = win.navigator, doc = document, docEle = doc.documentElement;
+    var nav = window.navigator;
     var ua = nav.userAgent.toLowerCase();
 
     /**
@@ -90,6 +96,11 @@ if (Fire.isPureWeb) {
      * @type {Boolean}
      */
     Fire.isAndroid = !!(ua.match(/android/i) || nav.platform.match(/android/i));
+}
+else if (platform.isNative) {
+    Fire.isAndroid = platform.isNativeAndroid;
+    Fire.isIOS = platform.isNativeIOS;
+    Fire.isMobile = Fire.isAndroid || Fire.isIOS;
 }
 else {
     Fire.isAndroid = Fire.isIOS = Fire.isMobile = false;
@@ -123,6 +134,7 @@ var DontSave = 1 << 2;
 var EditorOnly  = 1 << 3;
 var Dirty = 1 << 4;
 var DontDestroy = 1 << 5;
+//var NodeSavedAsWrapper = 1 << 6;
 
 /**
  * Bit mask that controls object states.
@@ -196,7 +208,8 @@ ObjectFlags.Hide = ObjectFlags.HideInGame | ObjectFlags.HideInEditor;
 
 Fire._ObjectFlags = ObjectFlags;
 
-var PersistentMask = ~(ToDestroy | Dirty | ObjectFlags.Destroying | DontDestroy |     // can not clone these flags
+// can not clone these flags
+var PersistentMask = ~(ToDestroy | Dirty | ObjectFlags.Destroying | DontDestroy |
                        ObjectFlags.IsOnEnableCalled |
                        ObjectFlags.IsEditorOnEnabledCalled |
                        ObjectFlags.IsOnLoadCalled |
@@ -206,8 +219,9 @@ module.exports = {
     Destroyed: Destroyed,
     ToDestroy: ToDestroy,
     DontSave: DontSave,
-    //EditorOnly: EditorOnly,
+    EditorOnly: EditorOnly,
     //Dirty: Dirty,
     //DontDestroy: DontDestroy,
+    //NodeSavedAsWrapper: NodeSavedAsWrapper,
     PersistentMask: PersistentMask
 };

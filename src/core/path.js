@@ -139,19 +139,26 @@ Fire.Path.setExtname = function (path, newExtension) {
 /**
  * @method setEndWithSep
  * @param {string} path
- * @param {Boolean} [endWithSep = true]
+ * @param {boolean|string} [endsWithSep = true]
  * @return {string} result
  */
-Fire.Path.setEndWithSep = function (path, endWithSep) {
-    endWithSep = (typeof endWithSep !== 'undefined') ? endWithSep : true;
+Fire.Path.setEndWithSep = function (path, endsWithSep) {
+    var sep = Fire.Path.sep;
+    if (typeof endsWithSep === 'undefined') {
+        endsWithSep = true;
+    }
+    else if (typeof endsWithSep === 'string') {
+        sep = endsWithSep;
+        endsWithSep = !!endsWithSep;
+    }
 
     var endChar = path[path.length - 1];
     var oldEndWithSep = (endChar === '\\' || endChar === '/');
-    if (!oldEndWithSep && endWithSep) {
-        path += Fire.Path.sep;
+    if (!oldEndWithSep && endsWithSep) {
+        path += sep;
     }
-    else if (oldEndWithSep && !endWithSep) {
-        path = path.substring(0, path.length - 1);
+    else if (oldEndWithSep && !endsWithSep) {
+        path = path.slice(0, -1);
     }
     return path;
 };

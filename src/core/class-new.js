@@ -1,14 +1,9 @@
 require('./attribute');
-require('./class');
-var FObject = require('./fobject');
+var define = require('./class').define;
+//var FObject = require('./fobject');
+var getTypeChecker = require('./attribute').getTypeChecker;
+var preprocessAttrs = require('./preprocess-attrs');
 
-// 不能使用于get方法的属性
-var _propertyNotForGet = [
-    'default',
-    'serializable',
-    'editorOnly',
-    'rawType'
-];
 
 /**
  * !#en Defines a FireClass using the given specification, please see [Class](/en/scripting/class/) for details.
@@ -65,59 +60,33 @@ var _propertyNotForGet = [
  */
 Fire.Class = function (options) {
     if (arguments.length === 0) {
-        return Fire.define();
+        return define();
     }
     if ( !options ) {
         Fire.error('[Fire.Class] Option must be non-nil');
-        return Fire.define();
+        return define();
     }
 
     var name = options.name;
-    var base = options.extends || FObject;
+    var base = options.extends/* || FObject*/;
     var ctor = (options.hasOwnProperty('constructor') && options.constructor) || undefined;
 
     // create constructor
     var cls;
-    //if (base) {
-        if (name) {
-            cls = Fire.extend(name, base, ctor);
-        }
-        else {
-            cls = Fire.extend(base, ctor);
-            name = Fire.JS.getClassName(cls);
-        }
-    //}
-    //else {
-    //    if (name) {
-    //        cls = Fire.define(name, ctor);
-    //    }
-    //    else {
-    //        cls = Fire.define(ctor);
-    //        name = Fire.JS.getClassName(cls);
-    //    }
-    //}
+    cls = define(name, base, ctor);
+    if (!name) {
+        name = Fire.JS.getClassName(cls);
+    }
 
     // define properties
     var properties = options.properties;
     if (properties) {
 
         // 预处理属性
-        preParseProperties(properties);
+        preprocessAttrs(properties, name);
 
         for (var propName in properties) {
             var val = properties[propName];
-            var isObj = val && typeof val === 'object' && !Array.isArray(val);
-            var isLiteral = isObj && val.constructor === ({}).constructor;
-            if ( !isLiteral ) {
-                val = {
-                    default: val
-                };
-            }
-            //var isValueType = typeof val.prototype.clone === 'function';
-            //if (isValueType) {
-            //    cls.prop(propName, val);
-            //    continue;
-            //}
             var attrs = parseAttributes(val, name, propName);
             if (val.hasOwnProperty('default')) {
                 cls.prop.apply(cls, [propName, val.default].concat(attrs));
@@ -191,56 +160,6 @@ Fire.Class = function (options) {
     return cls;
 };
 
-// 预处理属性值，例如：notify等
-function preParseProperties (properties) {
-    for (var propName in properties) {
-        var val = properties[propName];
-        if (!val) {
-            continue;
-        }
-
-        var notify = val.notify;
-        if (notify) {
-            if (val.get || val.set) {
-                if (FIRE_DEV) {
-                    Fire.warn('"notify" can\'t work with "get/set" !');
-                }
-                continue;
-            }
-            if (val.hasOwnProperty('default')) {
-                // 添加新的内部属性，将原来的属性修改为 getter/setter 形式
-                // 以 _ 开头将自动设置property 为 Fire.HideInInspector
-                var newKey = "_val$" + propName;
-
-                (function (notify, newKey) {
-                    val.get = function () {
-                        return this[newKey];
-                    };
-                    val.set = function (value) {
-                        var oldValue = this[newKey];
-                        this[newKey] = value;
-                        notify.call(this, oldValue);
-                    };
-                })(notify, newKey);
-
-                var newValue = {};
-                properties[newKey] = newValue;
-                // 将不能用于get方法中的属性移动到newValue中
-                for (var i = 0; i < _propertyNotForGet.length; i++) {
-                    var prop = _propertyNotForGet[i];
-                    if (val.hasOwnProperty(prop)) {
-                        newValue[prop] = val[prop];
-                        delete val[prop];
-                    }
-                }
-            }
-            else if (FIRE_DEV) {
-                Fire.warn('"notify" must work with "default" !');
-            }
-        }
-    }
-}
-
 var tmpAttrs = [];
 function parseAttributes (attrs, className, propName) {
     var ERR_Type = FIRE_EDITOR ? 'The %s of %s must be type %s' : '';
@@ -250,52 +169,67 @@ function parseAttributes (attrs, className, propName) {
 
     var type = attrs.type;
     if (type) {
-        if (Array.isArray(type)) {
-            if (type.length > 0) {
-                type = type[0];
-            }
-            else {
-                Fire.error('Invalid type of %s.%s', className, propName);
-                return;
-            }
-        }
-        if (type === Fire.Integer) {
-            result.push(Fire.Integer_Obsoleted);
-        }
-        else if (type === Fire.Float || type === Number) {
-            result.push(Fire.Float_Obsoleted);
-        }
-        else if (type === Fire.Boolean || type === Boolean) {
-            result.push(Fire.Boolean_Obsoleted);
-        }
-        else if (type === Fire.String || type === String) {
-            result.push(Fire.String_Obsoleted);
-        }
-        else if (type === 'Object' || type === Object) {
-            if (FIRE_EDITOR) {
-                Fire.error('Please define "type" parameter of %s.%s as the actual constructor.', className, propName);
-            }
-        }
-        else if (type === Fire._ScriptUuid) {
-            var attr = Fire.ObjectType(Fire.ScriptAsset);
-            attr.type = 'script-uuid';
-            result.push(attr);
-        }
-        else {
-            if (typeof type === 'object') {
-                if (type.hasOwnProperty('__enums__')) {
-                    result.push(Fire.Enum(type));
+        switch (type) {
+            case 'Integer': // Fire.Integer
+                result.push( { type: Fire.Integer, expectedTypeOf: 'number' } );
+                break;
+            case 'Float':   // Fire.Float
+                result.push( { type: Fire.Float, expectedTypeOf: 'number' } );
+                break;
+            case 'Boolean': // Fire.Boolean
+                result.push({
+                    type: Fire.Boolean,
+                    expectedTypeOf: 'number',
+                    _onAfterProp: getTypeChecker(Fire.Boolean, 'Fire.Boolean')
+                });
+                break;
+            case 'String':  // Fire.String
+                result.push({
+                    type: Fire.String,
+                    expectedTypeOf: 'number',
+                    _onAfterProp: getTypeChecker(Fire.String, 'Fire.String')
+                });
+                break;
+            case 'Object':  // Fire.ObjectType
+                if (FIRE_EDITOR) {
+                    Fire.error('Please define "type" parameter of %s.%s as the actual constructor.', className, propName);
                 }
-                else if (FIRE_EDITOR) {
-                    Fire.error('Please define "type" parameter of %s.%s as the constructor of %s.', className, propName, type);
+                break;
+            default:
+                if (type === Fire._ScriptUuid) {
+                    var attr = Fire.ObjectType(Fire.ScriptAsset);
+                    attr.type = 'Script';
+                    result.push(attr);
                 }
-            }
-            else if (typeof type === 'function') {
-                result.push(Fire.ObjectType(type));
-            }
-            else if (FIRE_EDITOR) {
-                Fire.error('Unknown "type" parameter of %s.%s：%s', className, propName, type);
-            }
+                else {
+                    if (typeof type === 'object') {
+                        if (Fire.isEnumType(type)) {
+                            result.push({
+                                type: 'Enum',
+                                expectedTypeOf: 'number',
+                                enumList: Fire.getEnumList(type)
+                            });
+                        }
+                        else if (FIRE_EDITOR) {
+                            Fire.error('Please define "type" parameter of %s.%s as the constructor of %s.', className, propName, type);
+                        }
+                    }
+                    else if (typeof type === 'function') {
+                        result.push(Fire.ObjectType(type));
+                        result.push( { expectedTypeOf: 'object' } );
+                    }
+                    else if (FIRE_EDITOR) {
+                        Fire.error('Unknown "type" parameter of %s.%s：%s', className, propName, type);
+                    }
+                }
+                break;
+        }
+    }
+    else {
+        if (attrs.default != null) {
+            result.push({
+                expectedTypeOf: typeof attrs.default,
+            });
         }
     }
 
@@ -303,7 +237,14 @@ function parseAttributes (attrs, className, propName) {
         var val = attrs[attrName];
         if (val) {
             if (typeof val === expectType) {
-                result.push(typeof attrCreater === 'function' ? attrCreater(val) : attrCreater);
+                if (typeof attrCreater === 'undefined') {
+                    var attr = {};
+                    attr[attrName] = val;
+                    result.push(attr);
+                }
+                else {
+                    result.push(typeof attrCreater === 'function' ? attrCreater(val) : attrCreater);
+                }
             }
             else if (FIRE_EDITOR) {
                 Fire.error('The %s of %s.%s must be type %s', attrName, className, propName, expectType);
@@ -313,30 +254,40 @@ function parseAttributes (attrs, className, propName) {
 
     parseSimpleAttr('rawType', 'string', Fire.RawType);
     parseSimpleAttr('editorOnly', 'boolean', Fire.EditorOnly);
-    parseSimpleAttr('displayName', 'string', Fire.DisplayName);
-    parseSimpleAttr('multiline', 'boolean', Fire.MultiText);
-    parseSimpleAttr('readonly', 'boolean', Fire.ReadOnly);
-    parseSimpleAttr('tooltip', 'string', Fire.Tooltip);
+    if (FIRE_EDITOR) {
+        parseSimpleAttr('displayName', 'string');
+        parseSimpleAttr('multiline', 'boolean', {multiline: true});
+        parseSimpleAttr('readonly', 'boolean', {readonly: true});
+        parseSimpleAttr('tooltip', 'string');
+    }
 
+    if (attrs.isRuntimeNode) {
+        result.push({ isRuntimeNode: true });
+    }
+    if (attrs.url) {
+        result.push({ saveUrlAsAsset: true });
+    }
     if (attrs.serializable === false) {
         result.push(Fire.NonSerialized);
     }
 
-    var visible = attrs.visible;
-    if (typeof visible !== 'undefined') {
-        if ( !attrs.visible ) {
-            result.push(Fire.HideInInspector);
+    if (FIRE_EDITOR) {
+        var visible = attrs.visible;
+        if (typeof visible !== 'undefined') {
+            if (!attrs.visible) {
+                result.push({visible: false});
+            }
         }
-    }
-    else {
-        var startsWithUS = (propName.charCodeAt(0) === 95);
-        if (startsWithUS) {
-            result.push(Fire.HideInInspector);
+        else {
+            var startsWithUS = (propName.charCodeAt(0) === 95);
+            if (startsWithUS) {
+                result.push({visible: false});
+            }
         }
     }
 
     //if (attrs.custom) {
-    //    result.push(Fire.Custom(attrs.custom));
+    //    result.push( { custom: attrs.custom });
     //}
 
     var range = attrs.range;
@@ -376,21 +327,23 @@ function parseAttributes (attrs, className, propName) {
         }
     }
 
-    var watch = attrs.watch;
-    if (watch) {
-        if (typeof watch === 'object') {
-            for (var watchKey in watch) {
-                var watchCallback = watch[watchKey];
-                if (typeof watchCallback === 'function') {
-                    result.push(Fire.Watch(watchKey.split(' '), watchCallback));
-                }
-                else if (FIRE_EDITOR) {
-                    Fire.error(ERR_Type, 'value', 'watch object', 'function');
+    if (FIRE_EDITOR) {
+        var watch = attrs.watch;
+        if (watch) {
+            if (typeof watch === 'object') {
+                for (var watchKey in watch) {
+                    var watchCallback = watch[watchKey];
+                    if (typeof watchCallback === 'function') {
+                        result.push(Fire.Watch(watchKey.split(' '), watchCallback));
+                    }
+                    else if (FIRE_EDITOR) {
+                        Fire.error(ERR_Type, 'value', 'watch object', 'function');
+                    }
                 }
             }
-        }
-        else if (FIRE_EDITOR) {
-            Fire.error(ERR_Type, 'watch', className + '.' + propName, 'object');
+            else {
+                Fire.error(ERR_Type, 'watch', className + '.' + propName, 'object');
+            }
         }
     }
 
